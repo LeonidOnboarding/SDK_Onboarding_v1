@@ -32,8 +32,13 @@ public final class OnboardingService {
 
     public var paywallScreenScrollEnabled: Bool = true
     
-    public var prefersLanguageOverRegion: Bool = false
+    public var prefersLanguageOverRegion: Bool = true
 
+    /// When true, prefers any variant of user's preferred language over default language.
+    /// Example: If user has Portuguese (pt) and server has pt-BR, uses pt-BR instead of falling back to English.
+    /// Default: true
+    public var prefersAnyLanguageVariantOverDefault: Bool = true
+    
     private var environment: OnboardingEnvironment = .prod
     private var initialRootViewController: UIViewController?
     private var navigationController: OnboardingNavigationController?
