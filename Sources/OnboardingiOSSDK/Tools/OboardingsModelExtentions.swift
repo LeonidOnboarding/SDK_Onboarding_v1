@@ -52,62 +52,111 @@ final class LocaleHelper {
     static func filteredLanguagesFor(anyDict: [String: Any]) -> [String: Any] {
         var filteredDict = anyDict
         if  let supportedLanguages = OnboardingService.shared.screenGraph?.languages.compactMap({$0.rawValue}), let values = Array(anyDict.keys) as? [String] {
-            
+
             let difference = supportedLanguages.difference(from: values)
             for language in difference {
                 filteredDict.removeValue(forKey: language)
             }
-            
+
         }
         return filteredDict
     }
-    
+
+    /// Finds a value in the dictionary by matching the language code prefix.
+    /// Prioritizes matching the device's region code when multiple options exist.
+    /// Example: langCode "en" with device region "US" → prefers "en-US" over "en-GB"
+    private static func findValueByLanguagePrefix(_ langCode: String, in dict: [String: Any]) -> Any? {
+        let prefix = langCode + "-"
+        var matchingEntries: [(key: String, value: Any)] = []
+
+        for (key, value) in dict {
+            if key.hasPrefix(prefix) {
+                matchingEntries.append((key, value))
+            }
+        }
+
+        guard !matchingEntries.isEmpty else { return nil }
+
+        if let regionCode = Locale.current.regionCode {
+            let preferredKey = "\(langCode)-\(regionCode)"
+            if let entry = matchingEntries.first(where: { $0.key == preferredKey }) {
+                return entry.value
+            }
+        }
+
+        return matchingEntries.first?.value
+    }
+
     static func valueByLocaleFor(anyDict: [String: Any], defaultLanguage: String? = OnboardingService.shared.screenGraph?.defaultLanguage.rawValue) -> Any {
-        // Check value for language code + region. Example: en-US
         let filteredDict = filteredLanguagesFor(anyDict: anyDict)
-       
+
+        // Phase 1: Bundle localizations (if prefersLanguageOverRegion is enabled)
         if OnboardingService.shared.prefersLanguageOverRegion {
             let preferredLocalizations = Bundle.main.preferredLocalizations
+            // First pass: exact match
             for language in preferredLocalizations {
-                let lang = language
-                if  let value =  filteredDict[lang] {
+                if let value = filteredDict[language] {
                     return value
                 }
             }
-        }
-        
-        for language in Locale.preferredLanguages {
-            let lang = language
-            if  let value =  filteredDict[lang] {
-                return value
-            }
-        }
-        // Check value for language code: ru
-        if let langCode = Locale.current.languageCode {
-            if  let value =  filteredDict[langCode] {
-                return value
-            }
-        }
-        
-        // Check value for languge code zh-Hans, zh-Hant
-        if let langCode = Locale.current.languageCode , let scriptCode = Locale.current.scriptCode {
-            if  langCode == "zh" {
-                if scriptCode == "Hans", let value =  filteredDict["zh-Hans"] {
-                    return value
-                } else if scriptCode == "Hant", let value =  filteredDict["zh-Hant"] {
+            // Second pass: prefix match (e.g., "en" matches "en-US")
+            for language in preferredLocalizations {
+                if let value = findValueByLanguagePrefix(language, in: filteredDict) {
                     return value
                 }
             }
         }
 
-        // Check value for default language code: ru, en-US,...
-        if let defaultLanguage = defaultLanguage {
-            if  let value =  filteredDict[defaultLanguage] {
+        // Phase 2: System preferred languages
+        // First pass: exact match
+        for language in Locale.preferredLanguages {
+            if let value = filteredDict[language] {
                 return value
             }
         }
-        
-        // Get any value to show something
+        // Second pass: prefix match
+        for language in Locale.preferredLanguages {
+            if let value = findValueByLanguagePrefix(language, in: filteredDict) {
+                return value
+            }
+        }
+
+        // Phase 3: Current locale language code
+        if let langCode = Locale.current.languageCode {
+            // Exact match
+            if let value = filteredDict[langCode] {
+                return value
+            }
+            // Prefix match (e.g., "es" matches "es-ES")
+            if let value = findValueByLanguagePrefix(langCode, in: filteredDict) {
+                return value
+            }
+        }
+
+        // Phase 4: Chinese script variants (special handling)
+        if let langCode = Locale.current.languageCode, let scriptCode = Locale.current.scriptCode {
+            if langCode == "zh" {
+                if scriptCode == "Hans", let value = filteredDict["zh-Hans"] {
+                    return value
+                } else if scriptCode == "Hant", let value = filteredDict["zh-Hant"] {
+                    return value
+                }
+            }
+        }
+
+        // Phase 5: Default language fallback
+        if let defaultLanguage = defaultLanguage {
+            // Exact match
+            if let value = filteredDict[defaultLanguage] {
+                return value
+            }
+            // Prefix match for default language
+            if let value = findValueByLanguagePrefix(defaultLanguage, in: filteredDict) {
+                return value
+            }
+        }
+
+        // Phase 6: Last resort - return any available value
         return anyDict.first?.value ?? ""
     }
     
