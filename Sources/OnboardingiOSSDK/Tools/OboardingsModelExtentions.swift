@@ -48,7 +48,34 @@ extension ScreensGraph {
 }
 
 final class LocaleHelper {
-    
+
+    /// Language code aliases for iOS locale changes.
+    /// e.g., es-419 (Latin American Spanish) is treated as equivalent to es-MX
+    private static let languageAliases: [String: String] = [
+        "es-419": "es-MX",
+        "es-MX": "es-419",
+    ]
+
+    /// Extracts base language code from locale string.
+    /// "es-MX" → "es", "en-US" → "en", "zh-Hans" → "zh"
+    private static func baseLanguageCode(_ locale: String) -> String {
+        if let dashIndex = locale.firstIndex(of: "-") {
+            return String(locale[..<dashIndex])
+        }
+        return locale
+    }
+
+    /// Returns value for language or its alias.
+    private static func valueForLanguageOrAlias(_ language: String, in dict: [String: Any]) -> Any? {
+        if let value = dict[language] {
+            return value
+        }
+        if let alias = languageAliases[language], let value = dict[alias] {
+            return value
+        }
+        return nil
+    }
+
     static func filteredLanguagesFor(anyDict: [String: Any]) -> [String: Any] {
         var filteredDict = anyDict
         if  let supportedLanguages = OnboardingService.shared.screenGraph?.languages.compactMap({$0.rawValue}), let values = Array(anyDict.keys) as? [String] {
@@ -93,9 +120,9 @@ final class LocaleHelper {
         // Phase 1: Bundle localizations (if prefersLanguageOverRegion is enabled)
         if OnboardingService.shared.prefersLanguageOverRegion {
             let preferredLocalizations = Bundle.main.preferredLocalizations
-            // First pass: exact match
+            // First pass: exact match + alias
             for language in preferredLocalizations {
-                if let value = filteredDict[language] {
+                if let value = valueForLanguageOrAlias(language, in: filteredDict) {
                     return value
                 }
             }
@@ -108,9 +135,9 @@ final class LocaleHelper {
         }
 
         // Phase 2: System preferred languages
-        // First pass: exact match
+        // First pass: exact match + alias
         for language in Locale.preferredLanguages {
-            if let value = filteredDict[language] {
+            if let value = valueForLanguageOrAlias(language, in: filteredDict) {
                 return value
             }
         }
@@ -123,8 +150,8 @@ final class LocaleHelper {
 
         // Phase 3: Current locale language code
         if let langCode = Locale.current.languageCode {
-            // Exact match
-            if let value = filteredDict[langCode] {
+            // Exact match + alias
+            if let value = valueForLanguageOrAlias(langCode, in: filteredDict) {
                 return value
             }
             // Prefix match (e.g., "es" matches "es-ES")
@@ -144,10 +171,22 @@ final class LocaleHelper {
             }
         }
 
-        // Phase 5: Default language fallback
+        // Phase 5: Base language fallback (configurable)
+        // If user has ANY variant of a language (es-ES, pt, en-GB...), prefer ANY variant of same base language
+        // Example: pt user gets pt-BR instead of falling back to English default
+        if OnboardingService.shared.prefersAnyLanguageVariantOverDefault {
+            for language in Locale.preferredLanguages {
+                let baseLang = baseLanguageCode(language)
+                if let value = findValueByLanguagePrefix(baseLang, in: filteredDict) {
+                    return value
+                }
+            }
+        }
+
+        // Phase 6: Default language fallback
         if let defaultLanguage = defaultLanguage {
-            // Exact match
-            if let value = filteredDict[defaultLanguage] {
+            // Exact match + alias
+            if let value = valueForLanguageOrAlias(defaultLanguage, in: filteredDict) {
                 return value
             }
             // Prefix match for default language
@@ -156,7 +195,7 @@ final class LocaleHelper {
             }
         }
 
-        // Phase 6: Last resort - return any available value
+        // Phase 7: Last resort - return any available value
         return anyDict.first?.value ?? ""
     }
     
